@@ -1,0 +1,87 @@
+version: "3.9"
+
+networks:
+  private:
+  webnet:
+
+volumes:
+  emulator-persist:
+  django-static:
+
+services:
+  db:
+    image: postgres:13-alpine
+    env_file:
+      - ./config/.env
+    networks:
+      - private
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready --username=${POSTGRES_USER:-wallet} --dbname=${POSTGRES_DB:-wallet}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:6.2-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./config/redis/users.acl:/usr/local/etc/redis/users.acl
+    networks:
+      - private
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/flow-hydraulics/flow-wallet-api:latest
+    networks:
+      - private
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    environment:
+      FLOW_WALLET_DATABASE_DSN: postgresql://wallet:wallet@db:5432/wallet
+      FLOW_WALLET_DATABASE_TYPE: psql
+      FLOW_WALLET_JOB_STATUS_WEBHOOK: http://main:8000/v1/job_status/
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emulator:
+        condition: service_started
+  main:
+      # Image name is changed in production:
+      image: "django-flow-integration:dev"
+      env_file: ./config/.env
+      build:
+        target: development_build
+        context: .
+        dockerfile: ./docker/django/Dockerfile
+        args:
+          DJANGO_ENV: development
+        cache_from:
+          - "django-flow-integration:dev"
+      volumes:
+        - django-static:/var/www/django/static
+        - ./market:/code
+      depends_on:
+        - db
+      networks:
+        - webnet
+        - private
+      ports:
+        - "8000:8000"
+      command: python -Wd manage.py runserver 0.0.0.0:8000
