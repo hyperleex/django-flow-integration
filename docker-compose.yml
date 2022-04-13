@@ -5,7 +5,6 @@ networks:
   webnet:
 
 volumes:
-  emulator-persist:
   django-static:
 
 services:
@@ -60,8 +59,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      emulator:
-        condition: service_started
   main:
       # Image name is changed in production:
       image: "django-flow-integration:dev"
